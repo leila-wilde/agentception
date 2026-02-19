@@ -256,11 +256,19 @@ class Agent:
         while True:
             # THINK: Get LLM response with tool availability
             try:
-                response = await self.client.chat(
-                    model=self.model,
-                    messages=self.message_history,
-                    tools=self.get_tools_schema(),
-                )
+                try:
+                    # Try with tools (for models that support tool calling)
+                    response = await self.client.chat(
+                        model=self.model,
+                        messages=self.message_history,
+                        tools=self.get_tools_schema(),
+                    )
+                except TypeError:
+                    # Fallback: model doesn't support tools parameter
+                    response = await self.client.chat(
+                        model=self.model,
+                        messages=self.message_history,
+                    )
             except Exception as e:
                 return f"Error communicating with Ollama: {str(e)}"
 

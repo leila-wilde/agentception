@@ -18,6 +18,7 @@ RUN mkdir -p /home/agentuser/workspace && \
 WORKDIR /home/agentuser
 COPY --chown=agentuser:agentuser pyproject.toml poetry.lock* ./
 COPY --chown=agentuser:agentuser agentception ./agentception
+COPY --chown=agentuser:agentuser src ./src
 
 # Install Python dependencies
 RUN pip install --no-cache-dir poetry && \
@@ -33,5 +34,5 @@ USER agentuser
 # Set working directory
 WORKDIR /home/agentuser/workspace
 
-# Default command
-CMD ["/bin/bash"]
+# Entrypoint: run the agent orchestrator
+ENTRYPOINT ["python", "/home/agentuser/agentception/entrypoint.py"]
