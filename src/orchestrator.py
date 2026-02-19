@@ -1,0 +1,250 @@
+"""Orchestrator for the Agentception AI agent.
+
+Implements the Think-Act-Observe loop by coordinating LLM reasoning
+with tool execution and response handling.
+"""
+
+import asyncio
+import inspect
+import json
+from typing import Any, Callable, Optional
+from pathlib import Path
+
+from ollama import AsyncClient
+
+
+# Import tools
+import sys
+sys.path.insert(0, str(Path(__file__).parent))
+from tools import read_file, write_file, list_files, execute_command
+
+
+class Agent:
+    """Coordinates the Think-Act-Observe loop with Ollama LLM."""
+
+    def __init__(
+        self,
+        model: str = "llama3.2",
+        ollama_host: str = "http://localhost:11434",
+    ) -> None:
+        """Initialize the Agent with Ollama configuration.
+
+        Args:
+            model: Model name for Ollama. Defaults to "llama3.2".
+            ollama_host: Ollama server URL. Defaults to localhost.
+        """
+        self.model = model
+        self.ollama_host = ollama_host
+        self.client = AsyncClient(host=ollama_host)
+        
+        # Available tools mapping
+        self.tools: dict[str, Callable] = {
+            "read_file": read_file,
+            "write_file": write_file,
+            "list_files": list_files,
+            "execute_command": execute_command,
+        }
+        
+        # Message history for context
+        self.message_history: list[dict[str, Any]] = []
+
+    def _get_tool_schema(self, func: Callable) -> dict[str, Any]:
+        """Convert a Python function to Ollama tool schema format.
+
+        Args:
+            func: The function to convert.
+
+        Returns:
+            JSON schema dict compatible with Ollama tool-calling API.
+        """
+        sig = inspect.signature(func)
+        docstring = inspect.getdoc(func) or ""
+        
+        # Extract description from docstring (first line)
+        description = docstring.split("\n")[0] if docstring else "No description"
+
+        # Build parameters schema
+        properties: dict[str, dict[str, Any]] = {}
+        required_params: list[str] = []
+
+        for param_name, param in sig.parameters.items():
+            param_type = param.annotation
+            
+            # Get type string
+            if param_type == str:
+                type_str = "string"
+            elif param_type == int:
+                type_str = "integer"
+            elif param_type == float:
+                type_str = "number"
+            elif param_type == bool:
+                type_str = "boolean"
+            elif param_type == list or param_type == list[str]:
+                type_str = "array"
+            else:
+                type_str = "string"
+
+            properties[param_name] = {
+                "type": type_str,
+                "description": f"Parameter {param_name}",
+            }
+
+            # Track required parameters (no defaults)
+            if param.default == inspect.Parameter.empty:
+                required_params.append(param_name)
+
+        return {
+            "type": "function",
+            "function": {
+                "name": func.__name__,
+                "description": description,
+                "parameters": {
+                    "type": "object",
+                    "properties": properties,
+                    "required": required_params,
+                },
+            },
+        }
+
+    def get_tools_schema(self) -> list[dict[str, Any]]:
+        """Get schemas for all available tools.
+
+        Returns:
+            List of tool schemas for Ollama tool-calling API.
+        """
+        return [self._get_tool_schema(func) for func in self.tools.values()]
+
+    def _parse_tool_call(self, response_text: str) -> Optional[tuple[str, dict[str, Any]]]:
+        """Parse LLM response to extract tool call if present.
+
+        Ollama tool-calling responses contain tool invocations in a specific format.
+        This method identifies and parses those invocations.
+
+        Args:
+            response_text: The LLM response text.
+
+        Returns:
+            Tuple of (tool_name, arguments_dict) if tool call found, else None.
+        """
+        # Look for tool invocation markers
+        # Ollama typically formats tool calls as:
+        # [TOOL_CALL] function_name(args_json) [/TOOL_CALL]
+        # or in newer versions uses structured format
+        
+        if not response_text:
+            return None
+
+        # Check for common tool call patterns
+        if "[TOOL_CALL]" in response_text:
+            # Extract tool call block
+            try:
+                start = response_text.index("[TOOL_CALL]") + len("[TOOL_CALL]")
+                end = response_text.index("[/TOOL_CALL]")
+                tool_call_text = response_text[start:end].strip()
+
+                # Parse format: function_name(json_args)
+                if "(" in tool_call_text and ")" in tool_call_text:
+                    paren_start = tool_call_text.index("(")
+                    paren_end = tool_call_text.rindex(")")
+                    
+                    tool_name = tool_call_text[:paren_start].strip()
+                    args_json_str = tool_call_text[paren_start + 1 : paren_end]
+                    
+                    args = json.loads(args_json_str)
+                    return (tool_name, args)
+            except (ValueError, json.JSONDecodeError, KeyError):
+                pass
+
+        # Check for JSON-formatted tool calls (alternative format)
+        try:
+            # Look for JSON object with tool_use structure
+            if "tool_use" in response_text.lower() or "tool_call" in response_text.lower():
+                # Try to extract JSON from response
+                json_start = response_text.index("{")
+                json_end = response_text.rindex("}") + 1
+                json_str = response_text[json_start:json_end]
+                
+                data = json.loads(json_str)
+                if "name" in data and "arguments" in data:
+                    return (data["name"], data["arguments"])
+        except (ValueError, json.JSONDecodeError, KeyError):
+            pass
+
+        return None
+
+    async def execute_tool(self, tool_name: str, arguments: dict[str, Any]) -> str:
+        """Execute a tool with given arguments.
+
+        Args:
+            tool_name: Name of the tool to execute.
+            arguments: Dictionary of arguments for the tool.
+
+        Returns:
+            String result of tool execution (or error message).
+        """
+        if tool_name not in self.tools:
+            return f"Error: Unknown tool '{tool_name}'"
+
+        try:
+            tool_func = self.tools[tool_name]
+            result = await tool_func(**arguments)
+            return str(result)
+        except TypeError as e:
+            return f"Error: Invalid arguments for '{tool_name}': {str(e)}"
+        except Exception as e:
+            return f"Error executing '{tool_name}': {str(e)}"
+
+    async def think_act_observe(self, user_prompt: str) -> str:
+        """Execute one iteration of the Think-Act-Observe loop.
+
+        Args:
+            user_prompt: The user's input/instruction.
+
+        Returns:
+            Final response to the user.
+        """
+        # THINK: Add user message to history
+        self.message_history.append({
+            "role": "user",
+            "content": user_prompt,
+        })
+
+        while True:
+            # THINK: Get LLM response with tool availability
+            try:
+                response = await self.client.chat(
+                    model=self.model,
+                    messages=self.message_history,
+                    tools=self.get_tools_schema(),
+                )
+            except Exception as e:
+                return f"Error communicating with Ollama: {str(e)}"
+
+            response_text = response.get("message", {}).get("content", "")
+            
+            # Add assistant response to history
+            self.message_history.append({
+                "role": "assistant",
+                "content": response_text,
+            })
+
+            # ACT: Check if LLM requested a tool call
+            tool_call = self._parse_tool_call(response_text)
+
+            if not tool_call:
+                # No tool call - LLM is done
+                return response_text
+
+            # ACT: Execute the requested tool
+            tool_name, arguments = tool_call
+            tool_result = await self.execute_tool(tool_name, arguments)
+
+            # OBSERVE: Add tool result back to history for LLM context
+            self.message_history.append({
+                "role": "user",
+                "content": f"Tool '{tool_name}' result: {tool_result}",
+            })
+
+    def reset(self) -> None:
+        """Clear message history for a new conversation."""
+        self.message_history = []
