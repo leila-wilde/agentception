@@ -142,7 +142,7 @@ Create src/orchestrator.py. Implement an Agent class that initializes the Ollama
 
 **2026-02-19 19:30 UTC** - Architectural review and decision
 
-**Decision:** Option A - Agent runs INSIDE Docker container
+**Decision:** Agent runs INSIDE Docker container
 
 **Rationale:**
 - ✅ Aligns with Specification.md security design
@@ -179,7 +179,7 @@ New Target (Phase 4):
 
 **2026-02-19 19:32 UTC** - Architecture decision and Phase 4 planning
 
-**Decision:** Option A - Agent runs INSIDE Docker container for proper sandboxing
+**Decision:** Agent runs INSIDE Docker container for proper sandboxing
 
 **Rationale:**
 - ✅ Aligns with security requirements from Specification.md
@@ -286,7 +286,7 @@ CLI displays with Rich
 **Prompt:**
 Create a user manual explaining how to launch the agent and a list of available commands/tools.
 
-**Model:** Claude Sonnet (premium request)
+**Model:** Claude Haiku 4.5 (via GitHub Copilot CLI)
 
 **Output:**
 - docs/USER_MANUAL.md (462 lines) - Complete launch guide, tool reference, troubleshooting
@@ -331,7 +331,7 @@ Finalize the 'agentception' product experience by working on safety, UI refineme
 - packaging: create a pyproject.toml entry point so the user can run the tool globally using agentception chat.
 - final verification: write an integration test where the agent is asked to 'check system stats, write them to a note, and then create a summary file.' Verify the entire Docker-native loop works end-to-end.
 
-**Model:** Claude Sonnet (premium request)
+**Model:** Claude Haiku 4.5 (via GitHub Copilot CLI)
 
 **Output:**
 - src/orchestrator.py: approval_callback + event_callback params on think_act_observe; thinking events strip [TOOL_CALL] markers; tool_output uses "content" key
@@ -341,3 +341,19 @@ Finalize the 'agentception' product experience by working on safety, UI refineme
 - tests/test_integration.py: new file, 4 integration tests (full chain, history, approval, context)
 - 73 tests passing (was 66)
 - Commit: feat(safety): approval flow, rich UI, and integration tests (765feb3)
+
+## Phase 8: End-User Documentation & Validation
+
+**2026-02-19 22:42 UTC** - Final documentation suite and system validation
+
+**Prompt:**
+Generate documentation and a testing suite for end-users.
+
+**Model:** Claude Haiku 4.5 (via GitHub Copilot CLI)
+
+**Output:**
+- USER_MANUAL.md: new "Security & Approval Flow" section, rewritten Security Notes
+- QUICK_REFERENCE.md: condensed from 270 to 130 lines
+- docs/TESTING.md: 5 Vibe Check scenarios (Project Init, Security, Maintenance, Multi-Step Chain, Personal Assistant)
+- check_system.py: validation script (7 checks, all passing)
+- Commit: docs(user): final documentation suite and validation script (1e74860)
