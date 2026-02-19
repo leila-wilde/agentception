@@ -7,7 +7,8 @@ with tool execution and response handling.
 import asyncio
 import inspect
 import json
-from typing import Any, Callable, Optional
+import re
+from typing import Any, Awaitable, Callable, Optional
 from pathlib import Path
 
 from ollama import AsyncClient
@@ -228,11 +229,20 @@ class Agent:
         except Exception as e:
             return f"Error executing '{tool_name}': {str(e)}"
 
-    async def think_act_observe(self, user_prompt: str) -> str:
+    async def think_act_observe(
+        self,
+        user_prompt: str,
+        approval_callback: Optional[Callable[[str], Awaitable[bool]]] = None,
+        event_callback: Optional[Callable[[dict[str, Any]], Awaitable[None]]] = None,
+    ) -> str:
         """Execute one iteration of the Think-Act-Observe loop.
 
         Args:
             user_prompt: The user's input/instruction.
+            approval_callback: Optional async callable invoked before execute_command.
+                               Receives the command string, returns True to allow.
+            event_callback: Optional async callable fired for intermediate events:
+                            thinking (LLM reasoning text), tool_call, tool_output.
 
         Returns:
             Final response to the user.
@@ -255,7 +265,7 @@ class Agent:
                 return f"Error communicating with Ollama: {str(e)}"
 
             response_text = response.get("message", {}).get("content", "")
-            
+
             # Add assistant response to history
             self.message_history.append({
                 "role": "assistant",
@@ -266,12 +276,41 @@ class Agent:
             tool_call = self._parse_tool_call(response_text)
 
             if not tool_call:
-                # No tool call - LLM is done
+                # No tool call — LLM has produced its final answer
                 return response_text
 
-            # ACT: Execute the requested tool
             tool_name, arguments = tool_call
+
+            # Emit reasoning text as a "thinking" event — strip tool call markers first
+            if event_callback is not None:
+                thinking_text = re.sub(
+                    r"\[TOOL_CALL\].*?\[/TOOL_CALL\]", "", response_text, flags=re.DOTALL
+                ).strip()
+                if thinking_text:
+                    await event_callback({"type": "thinking", "content": thinking_text})
+
+            # APPROVAL: Gate execute_command behind an optional approval callback
+            if tool_name == "execute_command" and approval_callback is not None:
+                cmd = arguments.get("cmd", "")
+                approved = await approval_callback(cmd)
+                if not approved:
+                    tool_result = "Command execution denied by user."
+                    self.message_history.append({
+                        "role": "user",
+                        "content": f"Tool '{tool_name}' result: {tool_result}",
+                    })
+                    continue  # Let LLM react to the denial
+
+            # Emit tool_call event before execution
+            if event_callback is not None:
+                await event_callback({"type": "tool_call", "tool": tool_name, "args": arguments})
+
+            # ACT: Execute the requested tool
             tool_result = await self.execute_tool(tool_name, arguments)
+
+            # Emit tool_output event after execution
+            if event_callback is not None:
+                await event_callback({"type": "tool_output", "tool": tool_name, "content": tool_result})
 
             # OBSERVE: Add tool result back to history for LLM context
             self.message_history.append({

@@ -234,3 +234,83 @@ class TestAgent:
             "read_file", "write_file", "list_files", "execute_command",
             "get_system_info", "manage_notes", "web_search",
         }
+
+    @pytest.mark.asyncio
+    async def test_approval_callback_called_for_execute_command(self, tmp_path):
+        """Test approval_callback is invoked when LLM requests execute_command."""
+        responses = [
+            {"message": {"content": '[TOOL_CALL]execute_command({"cmd": "echo hi"})[/TOOL_CALL]'}},
+            {"message": {"content": "Done."}},
+        ]
+        idx = 0
+
+        async def mock_chat(**kwargs):
+            nonlocal idx
+            r = responses[idx]; idx += 1; return r
+
+        approval_calls: list[str] = []
+
+        async def mock_approval(cmd: str) -> bool:
+            approval_calls.append(cmd)
+            return True
+
+        with patch("ollama.AsyncClient.chat", side_effect=mock_chat):
+            agent = Agent(workspace_path=tmp_path)
+            result = await agent.think_act_observe("run echo", approval_callback=mock_approval)
+
+        assert approval_calls == ["echo hi"]
+        assert "Done" in result
+
+    @pytest.mark.asyncio
+    async def test_denied_command_injected_into_history(self, tmp_path):
+        """Test that a denied execute_command is noted in history and loop continues."""
+        responses = [
+            {"message": {"content": '[TOOL_CALL]execute_command({"cmd": "rm -rf /"})[/TOOL_CALL]'}},
+            {"message": {"content": "I understand, the command was not allowed."}},
+        ]
+        idx = 0
+
+        async def mock_chat(**kwargs):
+            nonlocal idx
+            r = responses[idx]; idx += 1; return r
+
+        async def deny_all(cmd: str) -> bool:
+            return False
+
+        with patch("ollama.AsyncClient.chat", side_effect=mock_chat):
+            agent = Agent(workspace_path=tmp_path)
+            await agent.think_act_observe("delete everything", approval_callback=deny_all)
+
+        denied_in_history = any(
+            "denied" in msg.get("content", "").lower()
+            for msg in agent.message_history
+        )
+        assert denied_in_history
+
+    @pytest.mark.asyncio
+    async def test_event_callback_fires_for_tool_call_and_output(self, tmp_path):
+        """Test event_callback receives tool_call and tool_output events."""
+        responses = [
+            {"message": {"content": '[TOOL_CALL]get_system_info({})[/TOOL_CALL]'}},
+            {"message": {"content": "Stats retrieved."}},
+        ]
+        idx = 0
+
+        async def mock_chat(**kwargs):
+            nonlocal idx
+            r = responses[idx]; idx += 1; return r
+
+        events: list[dict] = []
+
+        async def capture(event: dict) -> None:
+            events.append(event)
+
+        with patch("ollama.AsyncClient.chat", side_effect=mock_chat):
+            agent = Agent(workspace_path=tmp_path)
+            await agent.think_act_observe("get stats", event_callback=capture)
+
+        types = [e["type"] for e in events]
+        assert "tool_call" in types
+        assert "tool_output" in types
+        tool_call_event = next(e for e in events if e["type"] == "tool_call")
+        assert tool_call_event["tool"] == "get_system_info"

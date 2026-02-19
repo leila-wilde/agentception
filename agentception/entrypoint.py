@@ -50,10 +50,11 @@ async def main() -> None:
         print(json.dumps(ready_response), flush=True)
 
         # Main interaction loop
+        loop = asyncio.get_event_loop()
         while True:
             try:
-                # Read prompt from stdin
-                line = sys.stdin.readline()
+                # Read prompt from stdin without blocking the event loop
+                line = await loop.run_in_executor(None, sys.stdin.readline)
                 if not line:
                     break
 
@@ -83,7 +84,30 @@ async def main() -> None:
 
                     # Execute orchestration loop
                     try:
-                        response = await agent.think_act_observe(prompt)
+                        # Emit thinking/tool events as JSON to host CLI
+                        async def emit_event(event: dict) -> None:
+                            print(json.dumps(event), flush=True)
+
+                        # Request approval from host CLI via stdin/stdout (non-blocking)
+                        async def request_approval(cmd: str) -> bool:
+                            print(
+                                json.dumps({"type": "approval_request", "command": cmd}),
+                                flush=True,
+                            )
+                            approval_line = await loop.run_in_executor(None, sys.stdin.readline)
+                            if not approval_line:
+                                return False
+                            try:
+                                msg = json.loads(approval_line.strip())
+                                return msg.get("type") == "approval_granted"
+                            except json.JSONDecodeError:
+                                return False
+
+                        response = await agent.think_act_observe(
+                            prompt,
+                            approval_callback=request_approval,
+                            event_callback=emit_event,
+                        )
 
                         # Send response
                         response_obj = {

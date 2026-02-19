@@ -10,7 +10,7 @@ import typer
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
-from rich.prompt import Prompt
+from rich.prompt import Confirm, Prompt
 
 
 # Add src to path for imports
@@ -37,16 +37,17 @@ async def chat_loop(
     console.print(
         Panel(
             f"[bold cyan]Agentception Agent[/bold cyan]\n"
-            f"Model: {model}\n"
-            f"Type 'exit' or Ctrl+C to quit, 'reset' to clear history",
-            title="Chat Session",
+            f"Model: [green]{model}[/green]\n"
+            f"Type [bold]'exit'[/bold] or Ctrl+C to quit  •  [bold]'reset'[/bold] to clear history",
+            title="[bold]Chat Session[/bold]",
+            border_style="cyan",
         )
     )
 
     try:
         while True:
             # Get user input
-            user_input = Prompt.ask("[bold]You[/bold]").strip()
+            user_input = Prompt.ask("\n[bold green]You[/bold green]").strip()
 
             if not user_input:
                 continue
@@ -56,14 +57,10 @@ async def chat_loop(
                 break
 
             if user_input.lower() == "reset":
-                # Send reset request to container
-                await container.send_prompt(
-                    json.dumps({"type": "reset"})
-                )
-                # Read reset confirmation
+                await container.send_prompt(json.dumps({"type": "reset"}))
                 async for response in container.receive_response():
                     if response.get("type") == "status":
-                        console.print("[yellow]Message history cleared.[/yellow]")
+                        console.print("[yellow]↺ Message history cleared.[/yellow]")
                     break
                 continue
 
@@ -76,30 +73,92 @@ async def chat_loop(
                 console.print(f"[red]Error sending prompt: {str(e)}[/red]")
                 break
 
-            # Receive and display response
-            try:
-                response_text = ""
-                async for response in container.receive_response():
-                    if response.get("type") == "response":
-                        response_text = response.get("content", "")
-                        break
-                    elif response.get("type") == "error":
-                        console.print(
-                            f"[red]Agent Error: {response.get('message')}[/red]"
-                        )
-                        break
+            # Receive and display response — loop re-enters after approval requests
+            done = False
+            while not done:
+                approval_pending: Optional[str] = None
 
-                if response_text:
-                    # Display response with markdown formatting
+                with console.status(
+                    "[bold yellow]Agent is thinking...[/bold yellow]",
+                    spinner="dots",
+                ):
+                    try:
+                        async for event in container.receive_response():
+                            event_type = event.get("type", "")
+
+                            if event_type == "thinking":
+                                text = event.get("content", "").strip()
+                                if text:
+                                    console.print(
+                                        Panel(
+                                            text,
+                                            title="[dim]Agent Thoughts[/dim]",
+                                            border_style="dim",
+                                        )
+                                    )
+
+                            elif event_type == "tool_call":
+                                tool = event.get("tool", "?")
+                                console.print(
+                                    f"  [dim]→ Calling [bold]{tool}[/bold]...[/dim]"
+                                )
+
+                            elif event_type == "tool_output":
+                                tool = event.get("tool", "?")
+                                output = event.get("content", "").strip()
+                                console.print(
+                                    Panel(
+                                        output,
+                                        title=f"[yellow]Tool Output: {tool}[/yellow]",
+                                        border_style="yellow",
+                                    )
+                                )
+
+                            elif event_type == "approval_request":
+                                approval_pending = event.get("command", "")
+                                break  # Exit status context to prompt user
+
+                            elif event_type == "response":
+                                response_text = event.get("content", "")
+                                if response_text:
+                                    console.print(
+                                        Panel(
+                                            Markdown(response_text),
+                                            title="[bold cyan]Agent[/bold cyan]",
+                                            border_style="cyan",
+                                        )
+                                    )
+                                done = True
+                                break
+
+                            elif event_type == "error":
+                                console.print(
+                                    f"[red]Agent Error: {event.get('message')}[/red]"
+                                )
+                                done = True
+                                break
+
+                    except Exception as e:
+                        console.print(f"[red]Error receiving response: {str(e)}[/red]")
+                        done = True
+
+                # Handle approval outside the status context (needs user input)
+                if approval_pending is not None:
                     console.print(
                         Panel(
-                            Markdown(response_text),
-                            title="[bold]Agent[/bold]",
+                            f"[bold]Command:[/bold] [yellow]{approval_pending}[/yellow]",
+                            title="[bold red]⚠ Approval Required[/bold red]",
+                            border_style="red",
                         )
                     )
-            except Exception as e:
-                console.print(f"[red]Error receiving response: {str(e)}[/red]")
-                break
+                    approved = Confirm.ask("[bold]Allow this command?[/bold]")
+                    msg_type = "approval_granted" if approved else "approval_denied"
+                    await container.send_prompt(json.dumps({"type": msg_type}))
+                    if not approved:
+                        console.print("[yellow]Command denied.[/yellow]")
+                    # Continue the outer while loop to keep receiving
+                else:
+                    done = True  # No approval needed, exit receive loop
 
     except KeyboardInterrupt:
         console.print("\n[dim]Session interrupted.[/dim]")
