@@ -12,7 +12,8 @@ Welcome to **Agentception**, a self-hosted, offline AI orchestrator that runs in
 4. [Chat Commands](#chat-commands)
 5. [Available Tools](#available-tools)
 6. [Workspace & File Operations](#workspace--file-operations)
-7. [Troubleshooting](#troubleshooting)
+7. [Persistent Memory & Personality](#persistent-memory--personality)
+8. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -21,8 +22,11 @@ Welcome to **Agentception**, a self-hosted, offline AI orchestrator that runs in
 Agentception is a **Python-based AI agent** that runs inside a Docker container for safety and isolation. The agent can:
 - Read and write files
 - Execute shell commands
-- Think through multi-step tasks
+- Report container system stats (disk, memory, OS)
+- Store persistent notes that survive conversation resets
+- Search the web (stub — requires SearxNG for real results)
 - Maintain conversation history across multiple messages
+- Take on a custom personality via a `system_context.txt` file
 
 **Requirements:**
 - Docker (running)
@@ -169,7 +173,7 @@ Any other input is sent to the agent as a prompt. The agent reads it, may call t
 
 ## Available Tools
 
-The agent has access to **4 core tools** inside the Docker container:
+The agent has access to **7 tools** inside the Docker container:
 
 ### 1. **read_file(path: str) → str**
 Read the contents of a file.
@@ -177,17 +181,9 @@ Read the contents of a file.
 **Example:**
 ```
 You: Read the file called config.json
-
 Agent: [reads file and displays content]
 ```
-
-**Parameters:**
-- `path` (string): Relative or absolute path to the file
-
-**Notes:**
-- Files must be in the workspace directory
-- Returns error if file doesn't exist
-- Works with text files (use `list_files()` to see what's available)
+- `path`: Relative or absolute path to the file (workspace only)
 
 ---
 
@@ -197,60 +193,107 @@ Create or overwrite a file with content.
 **Example:**
 ```
 You: Create a file named notes.md with the text "# My Notes"
-
 Agent: [creates file and confirms]
 ```
-
-**Parameters:**
-- `path` (string): Relative or absolute path for the new file
-- `content` (string): File content to write
-
-**Notes:**
-- Parent directories are created automatically if needed
-- Overwrites existing files (no backup)
-- Returns success/error message
+- `path`: Path for the new file
+- `content`: Text to write
+- Parent directories are created automatically
 
 ---
 
 ### 3. **list_files(path: str = ".") → str**
-List files and directories in a given path.
+List files and directories in a path.
 
 **Example:**
 ```
 You: What's in my workspace?
-
-Agent: [lists all files and directories with sizes]
+Agent: [lists all files and directories]
 ```
-
-**Parameters:**
-- `path` (string, optional): Directory to list (defaults to workspace root)
-
-**Notes:**
-- Shows file sizes and creation dates
-- Returns error if path doesn't exist or escapes workspace
-- Useful for exploring the workspace structure
+- `path` (optional): Directory to list — defaults to workspace root
 
 ---
 
 ### 4. **execute_command(command: str) → str**
-Execute a shell command and return output.
+Execute a shell command and return its output.
 
 **Example:**
 ```
-You: Show me the current date
+You: Run: python script.py
+Agent: [executes command, shows stdout + stderr]
+```
+- `command`: Shell command (can include pipes, redirects)
+- Runs inside the container — **Security:** Docker sandbox limits blast radius
 
-Agent: [executes `date` command and shows result]
+---
+
+### 5. **get_system_info() → str**
+Report container stats: disk usage, memory, and OS version.
+
+**Example:**
+```
+You: What are the container stats?
+Agent:
+  OS: Linux 5.15.0 / x86_64
+  Python: 3.11.9
+  Disk: 4.2GB / 20.0GB (21.0% used, 15.8GB free)
+  Memory: 1.2GB / 8.0GB (15.0% used)
+```
+- No parameters required
+- Disk measured at the workspace mount point
+- Memory read from `/proc/meminfo`
+
+---
+
+### 6. **manage_notes(action: str, content: str = "") → str**
+Read, append, or clear persistent notes stored as `notes.json` in the workspace.
+
+Notes **survive `reset`** — they're written to disk, not held in memory.
+
+**Example:**
+```
+You: Save a note: prefer async functions for all I/O
+Agent: Note saved. Total notes: 1
+
+You: Show my notes
+Agent: Notes (1):
+  [2026-02-19T22:00:00Z] prefer async functions for all I/O
+
+You: Clear all notes
+Agent: All notes cleared.
 ```
 
-**Parameters:**
-- `command` (string): Shell command to execute (e.g., `ls -la`, `python script.py`)
+| `action` | Effect |
+|----------|--------|
+| `read` | Return all saved notes with timestamps |
+| `append` | Save a new note (requires `content`) |
+| `clear` | Delete all notes |
 
-**Notes:**
-- Commands run inside the container
-- Can use pipes, redirects, and shell features
-- Returns stdout and stderr
-- Useful for: running scripts, building projects, checking system info
-- **Security:** The agent runs in a Docker container, limiting damage from malicious commands
+- Notes persist until the workspace is wiped (not cleared by `reset`)
+- Great for: preferences, reminders, facts the agent should remember
+
+---
+
+### 7. **web_search(query: str, max_results: int = 5) → str**
+Search the web for a topic. **Currently a stub** — structured for SearxNG integration.
+
+**Example:**
+```
+You: Search for Python asyncio best practices
+Agent: {
+  "query": "Python asyncio best practices",
+  "results": [{"title": "...", "url": "...", "snippet": "..."}],
+  "note": "[STUB] Real web search requires SearxNG integration."
+}
+```
+
+**Enabling real search with SearxNG:**
+```bash
+# Run SearxNG locally:
+docker run -d -p 8080:8080 searxng/searxng
+
+# Launch agent with SearxNG URL:
+SEARXNG_URL=http://localhost:8080 agentception chat
+```
 
 ---
 
@@ -314,6 +357,58 @@ You: Create a docs/ folder and move README.md into it
 
 Agent: [creates folder and moves file]
 ```
+
+---
+
+## Persistent Memory & Personality
+
+### Notes — Long-Term Memory
+
+The agent can store notes that survive `reset` commands. Notes are written to `notes.json` in the workspace:
+
+```
+You: Save a note: always use pathlib.Path for file operations
+You: Save a note: user prefers concise answers
+
+# After reset:
+You: reset
+[yellow]Message history cleared.[/yellow]
+
+You: What are my notes?
+Agent: Notes (2):
+  [2026-02-19T21:00:00Z] always use pathlib.Path for file operations
+  [2026-02-19T21:01:00Z] user prefers concise answers
+```
+
+Notes are cleared when the container exits — they live in the workspace volume, not in a database.
+
+### system_context.txt — Persistent Personality
+
+Create a file called `system_context.txt` in the workspace **before** launching the agent. Its contents will be injected as a system-level instruction every time the Agent starts.
+
+**Example — give the agent a custom persona:**
+```bash
+# Create the context file in your workspace
+echo "You are Aria, a concise and helpful coding assistant.
+You prefer Python, always use type hints, and keep answers short.
+When given a task, always check what files exist first." \
+  > /path/to/workspace/system_context.txt
+
+# Launch the agent — it will automatically load the context
+agentception chat --workspace /path/to/workspace
+```
+
+**What it's good for:**
+- Persistent tone/personality
+- Standing instructions (e.g., "always summarize your plan before acting")
+- Domain priming (e.g., "this is a Flask web app using PostgreSQL")
+- Preferred coding style or language rules
+
+**Notes:**
+- The file is loaded once at agent startup
+- An empty or missing file is silently ignored
+- `reset` clears the conversation but the system context message is NOT removed
+- The file is plain text — no special format required
 
 ---
 
@@ -427,9 +522,10 @@ agentception chat --help
 ## Performance Tips
 
 1. **Choose the right model:** Smaller models (like llama2) are faster but less capable
-2. **Clear history:** Use `reset` if conversation gets long
-3. **Batch operations:** Group related tasks together
-4. **Use specific prompts:** Be clear about what you want the agent to do
+2. **Clear history:** Use `reset` if conversation gets long (notes survive reset)
+3. **Prime the agent:** Use `system_context.txt` for standing instructions instead of repeating them
+4. **Batch operations:** Group related tasks together
+5. **Use specific prompts:** Clear instructions = better results
 
 ---
 
@@ -437,9 +533,9 @@ agentception chat --help
 
 🔒 **Sandboxing:** The agent runs inside a Docker container, isolating it from your host system.
 
-🔒 **Workspace Jailing:** File operations are confined to the workspace directory.
+🔒 **Workspace Jailing:** All file operations are confined to the workspace directory.
 
-🔒 **No Network Access:** The agent cannot make external network requests (by default).
+🔒 **No Network Access:** The agent cannot make external network requests by default (web search is a stub unless SearxNG is configured).
 
 ⚠️ **Caution:** Commands executed via `execute_command` can still cause damage within the container. Use carefully.
 

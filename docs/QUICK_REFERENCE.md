@@ -67,6 +67,32 @@ You: Run [shell command]
 - Returns: Command output (stdout + stderr)
 - Scope: Container environment
 
+### Get System Info
+```
+You: What are the system stats?
+You: How much disk space is left?
+```
+- Returns: OS version, Python version, disk usage (GB + %), memory usage (GB + %)
+- Scope: Container stats only
+
+### Manage Notes *(persistent memory)*
+```
+You: Save a note: [your text]
+You: Show my notes
+You: Clear all my notes
+```
+- Actions: `append` (save), `read` (list all), `clear` (delete all)
+- Storage: `notes.json` in workspace — persists across `reset` commands
+- Use for: to-do lists, reminders, facts the agent should remember
+
+### Web Search *(stub — SearxNG-ready)*
+```
+You: Search the web for [topic]
+You: Look up [question]
+```
+- Returns: JSON results (currently simulated — real results need SearxNG)
+- To enable: set `SEARXNG_URL` environment variable
+
 ---
 
 ## Common Tasks
@@ -92,6 +118,34 @@ You: What's my current directory?
 You: Run this command: ls -la
 ```
 
+### Check System Status
+```
+You: What are the container stats?
+You: How much disk space do I have left?
+You: What OS and Python version are we on?
+```
+
+### Use Persistent Notes
+```
+You: Save a note: buy groceries tomorrow
+You: Save a note: the API key is stored in config.json
+You: Show all my notes
+You: Clear my notes
+```
+
+### Personal Assistant Workflows
+```
+You: I'm your personal assistant agent. Load my context and notes.
+You: Remember that I prefer Python over JavaScript for scripting.
+You: What did I ask you to remember?
+```
+
+### Search the Web *(stub)*
+```
+You: Search the web for Python best practices
+You: Look up SearxNG self-hosted search setup
+```
+
 ### Project Management
 ```
 You: I'm starting a new project. Set up the basic structure.
@@ -104,11 +158,14 @@ You: Build and test my project
 ## Important Limitations
 
 - ❌ Cannot access files outside workspace
-- ❌ Cannot make external network requests (by default)
+- ❌ Web search returns stubs (requires SearxNG to enable real results)
 - ❌ Cannot install arbitrary packages (container is fixed)
 - ✅ CAN read/write files within workspace
 - ✅ CAN execute shell commands
 - ✅ CAN maintain conversation history
+- ✅ CAN report disk/memory/OS system stats
+- ✅ CAN store persistent notes (survive `reset`)
+- ✅ CAN be given a custom personality via `system_context.txt`
 
 ---
 
@@ -118,7 +175,10 @@ You: Build and test my project
 |-----------|-----------------|
 | **Workspace (container)** | `/home/agentuser/workspace` |
 | **Workspace (custom)** | Specified via `--workspace` flag |
+| **Notes file** | `<workspace>/notes.json` |
+| **System context** | `<workspace>/system_context.txt` |
 | **Ollama Server** | `http://localhost:11434` (host) |
+| **SearxNG (optional)** | `SEARXNG_URL` env var |
 | **Docker Image** | `agentception:dev` |
 | **Python Version** | 3.11 |
 | **Model (default)** | `llama3.2` |
@@ -158,8 +218,10 @@ ollama list  # See available models
 ## Tips & Tricks
 
 💡 **Multi-step Tasks:** Break down complex tasks into simple steps  
+💡 **Persistent Notes:** Use `manage_notes` to keep reminders across resets  
+💡 **Custom Personality:** Create `system_context.txt` in the workspace to give the agent standing instructions  
 💡 **File Organization:** Use directories to organize your workspace  
-💡 **History Management:** Use `reset` if context gets too long  
+💡 **History Management:** Use `reset` if context gets too long (notes survive reset)  
 💡 **Specific Prompts:** Clear instructions = better results  
 💡 **Tool Chains:** Combine tools (e.g., create → execute → read results)
 

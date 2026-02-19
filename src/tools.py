@@ -1,10 +1,15 @@
 """Core tool implementations for the Agentception orchestrator.
 
-This module provides asynchronous file operations and command execution,
-all strictly confined to the /home/agentuser/workspace directory.
+This module provides asynchronous file operations, command execution,
+system info reporting, note management, and web search — all confined
+to the /home/agentuser/workspace directory where applicable.
 """
 
 import asyncio
+import json
+import platform
+import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
 
@@ -146,6 +151,153 @@ async def list_files(path: str | Path = ".") -> List[str]:
         raise e
     except Exception as e:
         raise IOError(f"Failed to list directory: {str(e)}")
+
+
+async def get_system_info() -> str:
+    """Report container stats: disk usage, memory, and OS version.
+
+    Returns:
+        Formatted string with system information.
+    """
+    try:
+        # Disk usage
+        disk_root = WORKSPACE_ROOT if WORKSPACE_ROOT.exists() else Path("/")
+        disk = shutil.disk_usage(disk_root)
+        disk_total_gb = disk.total / (1024 ** 3)
+        disk_used_gb = disk.used / (1024 ** 3)
+        disk_free_gb = disk.free / (1024 ** 3)
+        disk_percent = (disk.used / disk.total) * 100
+
+        # Memory from /proc/meminfo (Linux container)
+        mem_total_kb = 0
+        mem_available_kb = 0
+        proc_meminfo = Path("/proc/meminfo")
+        if proc_meminfo.exists():
+            for line in proc_meminfo.read_text().splitlines():
+                if line.startswith("MemTotal:"):
+                    mem_total_kb = int(line.split()[1])
+                elif line.startswith("MemAvailable:"):
+                    mem_available_kb = int(line.split()[1])
+
+        mem_used_kb = mem_total_kb - mem_available_kb
+        mem_total_gb = mem_total_kb / (1024 ** 2)
+        mem_used_gb = mem_used_kb / (1024 ** 2)
+        mem_percent = (mem_used_kb / mem_total_kb * 100) if mem_total_kb > 0 else 0.0
+
+        uname = platform.uname()
+        return (
+            f"System Information:\n"
+            f"  OS: {uname.system} {uname.release}\n"
+            f"  Machine: {uname.machine}\n"
+            f"  Python: {platform.python_version()}\n"
+            f"  Disk ({disk_root}): {disk_used_gb:.1f}GB / {disk_total_gb:.1f}GB "
+            f"({disk_percent:.1f}% used, {disk_free_gb:.1f}GB free)\n"
+            f"  Memory: {mem_used_gb:.1f}GB / {mem_total_gb:.1f}GB ({mem_percent:.1f}% used)\n"
+        )
+    except Exception as e:
+        return f"Error getting system info: {str(e)}"
+
+
+async def manage_notes(action: str, content: str = "") -> str:
+    """Read, append, or clear persistent notes stored in the workspace.
+
+    Notes are stored as JSON in notes.json inside the workspace root,
+    providing simple long-term memory for the agent across resets.
+
+    Args:
+        action: Operation to perform — 'read', 'append', or 'clear'.
+        content: Note text to save (required when action is 'append').
+
+    Returns:
+        Note listing (on 'read'), confirmation (on 'append'/'clear'), or error.
+    """
+    notes_path = WORKSPACE_ROOT / "notes.json"
+    loop = asyncio.get_event_loop()
+
+    try:
+        notes: list[dict[str, str]] = []
+        if notes_path.exists():
+            raw = await loop.run_in_executor(None, notes_path.read_text)
+            notes = json.loads(raw).get("notes", [])
+
+        if action == "read":
+            if not notes:
+                return "No notes found."
+            lines = "\n".join(
+                f"[{n.get('timestamp', '?')}] {n.get('content', '')}" for n in notes
+            )
+            return f"Notes ({len(notes)}):\n{lines}"
+
+        elif action == "append":
+            if not content:
+                return "Error: 'content' is required for action='append'."
+            notes.append(
+                {"timestamp": datetime.now(timezone.utc).isoformat(), "content": content}
+            )
+            notes_path.parent.mkdir(parents=True, exist_ok=True)
+            await loop.run_in_executor(
+                None, notes_path.write_text, json.dumps({"notes": notes}, indent=2)
+            )
+            return f"Note saved. Total notes: {len(notes)}"
+
+        elif action == "clear":
+            await loop.run_in_executor(
+                None, notes_path.write_text, json.dumps({"notes": []}, indent=2)
+            )
+            return "All notes cleared."
+
+        else:
+            return f"Error: Unknown action '{action}'. Valid actions: 'read', 'append', 'clear'."
+
+    except json.JSONDecodeError:
+        return "Error: notes.json is corrupted. Use action='clear' to reset."
+    except Exception as e:
+        return f"Error managing notes: {str(e)}"
+
+
+async def web_search(query: str, max_results: int = 5) -> str:
+    """Search the web for information about a topic or question.
+
+    Stub implementation — structured for future integration with SearxNG.
+    To enable real search, set the SEARXNG_URL environment variable and
+    replace the stub body with an aiohttp request to the SearxNG JSON API.
+
+    Args:
+        query: The search query string.
+        max_results: Maximum number of results to return. Defaults to 5.
+
+    Returns:
+        JSON-formatted search results string.
+    """
+    # Future integration point:
+    # import os, aiohttp
+    # searxng_url = os.getenv("SEARXNG_URL")
+    # if searxng_url:
+    #     async with aiohttp.ClientSession() as session:
+    #         params = {"q": query, "format": "json", "num_results": max_results}
+    #         async with session.get(f"{searxng_url}/search", params=params) as resp:
+    #             data = await resp.json()
+    #             return json.dumps(data.get("results", [])[:max_results], indent=2)
+
+    stub_results = [
+        {
+            "title": f"[Stub] Result for: {query}",
+            "url": f"https://example.com/?q={query.replace(' ', '+')}",
+            "snippet": (
+                "Web search is currently stubbed. "
+                "Set SEARXNG_URL to enable real results via SearxNG."
+            ),
+            "source": "stub",
+        }
+    ]
+    return json.dumps(
+        {
+            "query": query,
+            "results": stub_results[:max_results],
+            "note": "[STUB] Real web search requires SearxNG integration.",
+        },
+        indent=2,
+    )
 
 
 async def execute_command(cmd: str, timeout: int | None = 30) -> str:

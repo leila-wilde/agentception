@@ -16,7 +16,15 @@ from ollama import AsyncClient
 # Import tools
 import sys
 sys.path.insert(0, str(Path(__file__).parent))
-from tools import read_file, write_file, list_files, execute_command
+from tools import (
+    read_file,
+    write_file,
+    list_files,
+    execute_command,
+    get_system_info,
+    manage_notes,
+    web_search,
+)
 
 
 class Agent:
@@ -26,27 +34,53 @@ class Agent:
         self,
         model: str = "llama3.2",
         ollama_host: str = "http://localhost:11434",
+        workspace_path: Optional[Path] = None,
     ) -> None:
         """Initialize the Agent with Ollama configuration.
 
         Args:
             model: Model name for Ollama. Defaults to "llama3.2".
             ollama_host: Ollama server URL. Defaults to localhost.
+            workspace_path: Path to workspace directory for context loading.
+                            Defaults to /home/agentuser/workspace.
         """
         self.model = model
         self.ollama_host = ollama_host
         self.client = AsyncClient(host=ollama_host)
-        
+        self.workspace_path = workspace_path or Path("/home/agentuser/workspace")
+
         # Available tools mapping
         self.tools: dict[str, Callable] = {
             "read_file": read_file,
             "write_file": write_file,
             "list_files": list_files,
             "execute_command": execute_command,
+            "get_system_info": get_system_info,
+            "manage_notes": manage_notes,
+            "web_search": web_search,
         }
-        
-        # Message history for context
+
+        # Message history — optionally seeded with persistent system context
         self.message_history: list[dict[str, Any]] = []
+        self._load_system_context()
+
+    def _load_system_context(self) -> None:
+        """Load system_context.txt from workspace as a system message.
+
+        If the file exists and has content, it is prepended to message history
+        as a system role message, giving the agent a persistent personality or
+        standing instructions across sessions.
+        """
+        context_file = self.workspace_path / "system_context.txt"
+        try:
+            if context_file.exists():
+                system_context = context_file.read_text().strip()
+                if system_context:
+                    self.message_history.append(
+                        {"role": "system", "content": system_context}
+                    )
+        except Exception:
+            pass  # Silently skip unreadable context file
 
     def _get_tool_schema(self, func: Callable) -> dict[str, Any]:
         """Convert a Python function to Ollama tool schema format.

@@ -34,10 +34,11 @@ async def main() -> None:
     # Get configuration from environment
     ollama_host = os.getenv("OLLAMA_HOST", "http://host.docker.internal:11434")
     model = os.getenv("AGENTCEPTION_MODEL", "llama3.2")
+    workspace_path = Path(os.getenv("WORKSPACE_PATH", "/home/agentuser/workspace"))
 
     try:
         # Initialize Agent
-        agent = Agent(model=model, ollama_host=ollama_host)
+        agent = Agent(model=model, ollama_host=ollama_host, workspace_path=workspace_path)
 
         # Write ready signal
         ready_response = {

@@ -8,7 +8,16 @@ import sys
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from tools import read_file, write_file, list_files, execute_command, _validate_path
+from tools import (
+    read_file,
+    write_file,
+    list_files,
+    execute_command,
+    get_system_info,
+    manage_notes,
+    web_search,
+    _validate_path,
+)
 
 
 @pytest.fixture
@@ -178,3 +187,148 @@ class TestExecuteCommand:
         """Test command timeout."""
         with pytest.raises(TimeoutError, match="timed out"):
             await execute_command("sleep 10", timeout=1)
+
+
+class TestGetSystemInfo:
+    """Test system information reporting."""
+
+    @pytest.mark.asyncio
+    async def test_returns_string(self):
+        """Test get_system_info returns a non-empty string."""
+        result = await get_system_info()
+        assert isinstance(result, str)
+        assert len(result) > 0
+
+    @pytest.mark.asyncio
+    async def test_contains_expected_sections(self):
+        """Test get_system_info output includes key system sections."""
+        result = await get_system_info()
+        assert "OS:" in result
+        assert "Python:" in result
+        assert "Disk" in result
+        assert "Memory:" in result
+
+
+class TestManageNotes:
+    """Test persistent note management."""
+
+    @pytest.mark.asyncio
+    async def test_read_empty_notes(self, tmp_path):
+        """Test reading when no notes exist returns helpful message."""
+        import tools
+        original = tools.WORKSPACE_ROOT
+        tools.WORKSPACE_ROOT = tmp_path
+        try:
+            result = await manage_notes("read")
+            assert "No notes found" in result
+        finally:
+            tools.WORKSPACE_ROOT = original
+
+    @pytest.mark.asyncio
+    async def test_append_note(self, tmp_path):
+        """Test appending a note creates notes.json and returns count."""
+        import tools
+        original = tools.WORKSPACE_ROOT
+        tools.WORKSPACE_ROOT = tmp_path
+        try:
+            result = await manage_notes("append", "Remember to water the plants.")
+            assert "Note saved" in result
+            assert "1" in result
+            assert (tmp_path / "notes.json").exists()
+        finally:
+            tools.WORKSPACE_ROOT = original
+
+    @pytest.mark.asyncio
+    async def test_read_after_append(self, tmp_path):
+        """Test reading notes returns previously saved content."""
+        import tools
+        original = tools.WORKSPACE_ROOT
+        tools.WORKSPACE_ROOT = tmp_path
+        try:
+            await manage_notes("append", "First note")
+            await manage_notes("append", "Second note")
+            result = await manage_notes("read")
+            assert "First note" in result
+            assert "Second note" in result
+            assert "Notes (2)" in result
+        finally:
+            tools.WORKSPACE_ROOT = original
+
+    @pytest.mark.asyncio
+    async def test_clear_notes(self, tmp_path):
+        """Test clearing notes empties the store."""
+        import tools
+        original = tools.WORKSPACE_ROOT
+        tools.WORKSPACE_ROOT = tmp_path
+        try:
+            await manage_notes("append", "To be cleared")
+            await manage_notes("clear")
+            result = await manage_notes("read")
+            assert "No notes found" in result
+        finally:
+            tools.WORKSPACE_ROOT = original
+
+    @pytest.mark.asyncio
+    async def test_append_without_content(self, tmp_path):
+        """Test appending with empty content returns error."""
+        import tools
+        original = tools.WORKSPACE_ROOT
+        tools.WORKSPACE_ROOT = tmp_path
+        try:
+            result = await manage_notes("append", "")
+            assert "Error" in result
+        finally:
+            tools.WORKSPACE_ROOT = original
+
+    @pytest.mark.asyncio
+    async def test_unknown_action(self, tmp_path):
+        """Test unknown action returns error message."""
+        import tools
+        original = tools.WORKSPACE_ROOT
+        tools.WORKSPACE_ROOT = tmp_path
+        try:
+            result = await manage_notes("delete")
+            assert "Error" in result
+            assert "Unknown action" in result
+        finally:
+            tools.WORKSPACE_ROOT = original
+
+
+class TestWebSearch:
+    """Test web search stub."""
+
+    @pytest.mark.asyncio
+    async def test_returns_valid_json(self):
+        """Test web_search returns valid JSON string."""
+        import json
+        result = await web_search("Python asyncio tutorial")
+        data = json.loads(result)
+        assert "query" in data
+        assert "results" in data
+        assert isinstance(data["results"], list)
+
+    @pytest.mark.asyncio
+    async def test_query_reflected_in_output(self):
+        """Test the query is reflected in the response."""
+        import json
+        query = "best coffee shops in Paris"
+        result = await web_search(query)
+        data = json.loads(result)
+        assert data["query"] == query
+
+    @pytest.mark.asyncio
+    async def test_max_results_respected(self):
+        """Test max_results limits the result count."""
+        import json
+        result = await web_search("test query", max_results=1)
+        data = json.loads(result)
+        assert len(data["results"]) <= 1
+
+    @pytest.mark.asyncio
+    async def test_stub_note_present(self):
+        """Test stub response includes integration note."""
+        import json
+        result = await web_search("anything")
+        data = json.loads(result)
+        assert "note" in data
+        assert "STUB" in data["note"].upper() or "stub" in data["note"].lower()

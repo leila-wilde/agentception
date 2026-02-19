@@ -23,12 +23,14 @@ class TestAgent:
         """Test Agent initializes with correct defaults."""
         assert agent.model == "llama3.2"
         assert agent.ollama_host == "http://localhost:11434"
-        assert len(agent.tools) == 4
+        assert len(agent.tools) == 7
         assert "read_file" in agent.tools
         assert "write_file" in agent.tools
         assert "list_files" in agent.tools
         assert "execute_command" in agent.tools
-        assert agent.message_history == []
+        assert "get_system_info" in agent.tools
+        assert "manage_notes" in agent.tools
+        assert "web_search" in agent.tools
 
     def test_agent_custom_initialization(self):
         """Test Agent with custom parameters."""
@@ -40,7 +42,7 @@ class TestAgent:
         """Test tool schema generation."""
         schemas = agent.get_tools_schema()
         
-        assert len(schemas) == 4
+        assert len(schemas) == 7
         
         # Check schema structure
         for schema in schemas:
@@ -200,3 +202,35 @@ class TestAgent:
         
         agent.reset()
         assert agent.message_history == []
+
+    def test_loads_system_context_on_init(self, tmp_path):
+        """Test Agent loads system_context.txt as first system message."""
+        context = "You are a helpful assistant named Aria."
+        (tmp_path / "system_context.txt").write_text(context)
+
+        agent = Agent(workspace_path=tmp_path)
+
+        assert len(agent.message_history) == 1
+        assert agent.message_history[0]["role"] == "system"
+        assert agent.message_history[0]["content"] == context
+
+    def test_ignores_missing_system_context(self, tmp_path):
+        """Test Agent starts with empty history when no context file exists."""
+        agent = Agent(workspace_path=tmp_path)
+        assert agent.message_history == []
+
+    def test_ignores_empty_system_context(self, tmp_path):
+        """Test Agent ignores a blank system_context.txt."""
+        (tmp_path / "system_context.txt").write_text("   \n  ")
+        agent = Agent(workspace_path=tmp_path)
+        assert agent.message_history == []
+
+    def test_new_tools_in_schema(self, tmp_path):
+        """Test all 7 tools appear in the generated Ollama tool schema."""
+        agent = Agent(workspace_path=tmp_path)
+        schema = agent.get_tools_schema()
+        names = {entry["function"]["name"] for entry in schema}
+        assert names == {
+            "read_file", "write_file", "list_files", "execute_command",
+            "get_system_info", "manage_notes", "web_search",
+        }
