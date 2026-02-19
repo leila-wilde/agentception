@@ -150,7 +150,7 @@ Ends the chat session and exits the program. The container is automatically clea
 
 ```bash
 You: exit
-[dim]Goodbye![/dim]
+Goodbye!
 ```
 
 ### `reset`
@@ -158,16 +158,51 @@ Clears the agent's message history. The agent will forget the current conversati
 
 ```bash
 You: reset
-[yellow]Message history cleared.[/yellow]
+↺ Message history cleared.
 ```
 
-This is useful if:
-- The conversation becomes too long (context window limits)
-- You want to start a fresh task
-- The agent is stuck or confused
+Use when the conversation becomes too long or you want a fresh start.
 
 ### Regular Messages
 Any other input is sent to the agent as a prompt. The agent reads it, may call tools, and responds.
+
+---
+
+## Security & Approval Flow
+
+### How Approval Works
+
+When the agent needs to run a **shell command**, Agentception pauses and asks for your approval:
+
+```
+┌─ ⚠ Approval Required ─────────────────┐
+│ Command: rm -f ./old_files/*          │
+└───────────────────────────────────────┘
+Allow this command? [y/n]: 
+```
+
+**Why?** Shell commands are powerful and potentially dangerous. Approval ensures you stay in control:
+- Prevents the agent from accidentally deleting files
+- Stops malicious prompts from running harmful commands
+- Lets you review what the agent intends to do before it happens
+
+**What happens:**
+- ✅ **Yes (`y`)**: The agent runs the command and reports the results
+- ❌ **No (`n`)**: The agent learns the command was denied and reacts appropriately
+
+### Command Sandbox
+
+The agent **always** runs inside a Docker container — the sandbox contains damage. Even if a command runs, it's isolated from your host system. Still, approval adds an extra layer of safety for your confidence.
+
+### Workspace Jailing
+
+All file operations are confined to the workspace directory:
+```bash
+✅ Allowed:  read_file("config.json")
+✅ Allowed:  write_file("subdir/notes.txt", "...")
+❌ Blocked:  read_file("../../etc/passwd")
+❌ Blocked:  write_file("/var/secret.txt", "...")
+```
 
 ---
 
@@ -531,13 +566,19 @@ agentception chat --help
 
 ## Security Notes
 
-🔒 **Sandboxing:** The agent runs inside a Docker container, isolating it from your host system.
+🔒 **Approval Required**: The agent must ask for permission before running shell commands. Review each command carefully.
 
-🔒 **Workspace Jailing:** All file operations are confined to the workspace directory.
+🔒 **Container Sandboxing**: The agent runs inside a Docker container, isolating it from your host system. Even if a command runs, it's confined.
 
-🔒 **No Network Access:** The agent cannot make external network requests by default (web search is a stub unless SearxNG is configured).
+🔒 **Workspace Jailing**: All file operations are confined to the workspace directory — path escapes are blocked at the code level.
 
-⚠️ **Caution:** Commands executed via `execute_command` can still cause damage within the container. Use carefully.
+🔒 **No Network Access**: The agent cannot make external network requests by default (web search is a stub unless SearxNG is configured).
+
+✅ **Best Practices**:
+- Always review commands before approving
+- Use `reset` to start fresh if you feel uncertain
+- Keep your workspace clean of sensitive data
+- Run the agent only with trusted prompts
 
 ---
 
