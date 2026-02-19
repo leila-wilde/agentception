@@ -74,9 +74,13 @@ def check_ollama_model() -> bool:
 def check_python() -> bool:
     """Verify Python 3.11+ is available."""
     print("[*] Checking Python version...")
-    success, output = run_cmd("python --version")
+    # Try python3 first, then python
+    success, output = run_cmd("python3 --version")
+    if not success:
+        success, output = run_cmd("python --version")
     if not success:
         print("  ❌ Python is not available")
+        print("     Fix: Install Python 3.11+")
         return False
     # Parse version
     try:
@@ -99,7 +103,9 @@ def check_agentception_cli() -> bool:
     success, output = run_cmd("agentception version")
     if not success:
         print("  ❌ 'agentception' command not found")
-        print("     Fix: Install with: pip install -e .")
+        print("     Fix: Activate venv & install with:")
+        print("          source .venv/bin/activate")
+        print("          pip install -e .")
         return False
     print(f"  ✅ agentception CLI is installed ({output.strip()})")
     return True
