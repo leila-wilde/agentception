@@ -319,3 +319,25 @@ Continue logging the prompts in SESSION.md using the established format.
 - docs/QUICK_REFERENCE.md: updated tools table, capabilities, and environment info
 - 66 tests passing (was 50)
 - Commit: feat(tools): add system info, notes, web search, and memory persistence (8cf7764)
+
+## Phase 7: Safety, UI Refinement & Packaging
+
+**2026-02-19 22:22 UTC** - Add approval flow, Rich UI polish, packaging verification, and integration tests
+
+**Prompt:**
+Finalize the 'agentception' product experience by working on safety, UI refinement & packaging.
+- manual approval flow: enhance the Agent and CLI to support an 'approval required' flag for the execute_command tool. When the LLM calls execute_command, the orchestrator should send a type: 'approval_request' JSON message to the host CLI. The CLI must prompt the user (y/n) before sending an approval_granted message back to the container.
+- rich UI enhancements: improve agentception/cli.py to show a 'thinking' spinner and clearly distinguish between 'Agent Thoughts' (reasoning) and 'Tool Output' (observations) using different Rich styles.
+- packaging: create a pyproject.toml entry point so the user can run the tool globally using agentception chat.
+- final verification: write an integration test where the agent is asked to 'check system stats, write them to a note, and then create a summary file.' Verify the entire Docker-native loop works end-to-end.
+
+**Model:** Claude Sonnet (premium request)
+
+**Output:**
+- src/orchestrator.py: approval_callback + event_callback params on think_act_observe; thinking events strip [TOOL_CALL] markers; tool_output uses "content" key
+- agentception/entrypoint.py: emit_event + request_approval callbacks; all stdin reads via run_in_executor for async safety
+- agentception/cli.py: dots spinner, dim 'Agent Thoughts' panel, yellow 'Tool Output' panel, red approval prompt (Rich Confirm), cyan final response panel
+- tests/test_orchestrator.py: +3 tests (approval granted/denied, event callback)
+- tests/test_integration.py: new file, 4 integration tests (full chain, history, approval, context)
+- 73 tests passing (was 66)
+- Commit: feat(safety): approval flow, rich UI, and integration tests (765feb3)
