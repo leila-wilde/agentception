@@ -1,0 +1,24 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-filesystem", "/home/nyxx/Projects/agentception"],
+      "description": "Navigate project structure, read specs, review test coverage"
+    },
+    "bash": {
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-bash"],
+      "description": "Run development commands (tests, linting, builds, poetry commands)"
+    },
+    "docker": {
+      "command": "docker",
+      "args": ["run", "--rm", "-v", "/var/run/docker.sock:/var/run/docker.sock", "docker:latest"],
+      "description": "Inspect container configs, verify sandbox isolation, debug connectivity"
+    }
+  },
+  "environment": {
+    "WORK_DIR": "/home/nyxx/Projects/agentception",
+    "OLLAMA_HOST": "http://localhost:11434",
+    "DOCKER_HOST": "unix:///var/run/docker.sock"
+  }
+}
