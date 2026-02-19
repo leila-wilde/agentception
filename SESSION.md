@@ -278,3 +278,44 @@ CLI displays with Rich
 
 **Commit:** `feat(phase4): implement Docker-native container orchestration`
 
+
+## Phase 5: User Documentation
+
+**2026-02-19 21:47 UTC** - Create user manual and quick reference guides
+
+**Prompt:**
+Create a user manual explaining how to launch the agent and a list of available commands/tools.
+
+**Model:** Claude Sonnet (premium request)
+
+**Output:**
+- docs/USER_MANUAL.md (462 lines) - Complete launch guide, tool reference, troubleshooting
+- docs/QUICK_REFERENCE.md (215 lines) - Quick lookup tables and example workflows
+- Commit: docs(user): Add comprehensive user manual and quick reference guide
+
+
+## Phase 6: Assistant Features & Persistence
+
+**2026-02-19 21:58 UTC** - Add assistant tools and persistent memory
+
+**Prompt:**
+Review the project status and your instructions in COPILOT.md and then lets start working on assistant features & persistence. I want to extend the agent's capabilities to act as a personal assistant.
+- System Info Tool: In src/tools.py, add get_system_info (async) to report container stats (disk, memory, OS version).
+- Note-Taking Tool: Implement manage_notes(action, content) to read/write to a notes.json file inside the workspace for persistent 'long-term' memory.
+- Web Search (Mock/Stub): Implement a web_search tool. For now, create a robust stub that simulates a search, but structure it so we can easily plug in a real FOSS scraper (like SearxNG) later.
+- Integration: Update src/orchestrator.py and agentception/entrypoint.py to ensure these new tools are exposed to the LLM via the tool-calling schema.
+- Memory Persistence: Modify the Agent class to optionally load a 'system_context.txt' from the workspace at startup to give the agent persistent personality/instructions.
+Continue logging the prompts in SESSION.md using the established format.
+
+**Model:** Claude Sonnet (premium request)
+
+**Output:**
+- src/tools.py: +3 tools (get_system_info, manage_notes, web_search), now 7 total
+- src/orchestrator.py: new workspace_path param, _load_system_context(), 7 tools registered
+- agentception/entrypoint.py: reads WORKSPACE_PATH env var, passes to Agent
+- tests/test_tools.py: +16 tests (TestGetSystemInfo, TestManageNotes, TestWebSearch)
+- tests/test_orchestrator.py: +4 tests (system context loading, new tools in schema)
+- docs/USER_MANUAL.md: updated for 7 tools + new Persistent Memory & Personality section
+- docs/QUICK_REFERENCE.md: updated tools table, capabilities, and environment info
+- 66 tests passing (was 50)
+- Commit: feat(tools): add system info, notes, web search, and memory persistence (8cf7764)
