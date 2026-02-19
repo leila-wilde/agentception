@@ -164,6 +164,24 @@ async def chat_loop(
         console.print("\n[dim]Session interrupted.[/dim]")
 
 
+async def _main_chat(
+    container: ContainerManager,
+    model: str,
+) -> None:
+    """Main chat routine that runs within a single event loop.
+    
+    Args:
+        container: Initialized ContainerManager instance.
+        model: Model name (for display).
+    """
+    try:
+        console.print("[cyan]Starting Agent container...[/cyan]")
+        await container.start()
+        await chat_loop(container, model)
+    finally:
+        await container.cleanup()
+
+
 @app.command()
 def chat(
     model: str = typer.Option(
@@ -194,14 +212,9 @@ def chat(
             model=model,
         )
 
-        # Create and start container manager
+        # Create container manager and run in single event loop
         container = ContainerManager(config)
-
-        console.print("[cyan]Starting Agent container...[/cyan]")
-        asyncio.run(container.start())
-
-        # Run chat loop
-        asyncio.run(chat_loop(container, model))
+        asyncio.run(_main_chat(container, model))
 
     except RuntimeError as e:
         console.print(f"[red]Error: {str(e)}[/red]")
@@ -209,12 +222,6 @@ def chat(
     except Exception as e:
         console.print(f"[red]Unexpected error: {str(e)}[/red]")
         sys.exit(1)
-    finally:
-        # Clean up container
-        try:
-            asyncio.run(container.cleanup())
-        except Exception as e:
-            console.print(f"[yellow]Cleanup warning: {str(e)}[/yellow]")
 
 
 @app.command()
