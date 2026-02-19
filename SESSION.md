@@ -135,3 +135,40 @@ Create src/orchestrator.py. Implement an Agent class that initializes the Ollama
 
 **Commit:** `feat(orchestrator): implement Agent class with tool mapping and LLM integration`
 
+
+---
+
+## Architecture Decision: Container-Native Agent
+
+**2026-02-19 19:30 UTC** - Architectural review and decision
+
+**Decision:** Option A - Agent runs INSIDE Docker container
+
+**Rationale:**
+- ✅ Aligns with Specification.md security design
+- ✅ Proper sandboxing and process isolation
+- ✅ Tools operate on actual workspace (not host paths)
+- ✅ Cleaner implementation for long-term
+- ✅ Scalable for future multi-agent deployments
+
+**Architecture Changes for Phase 4:**
+
+Current (Phase 3):
+  CLI (host) → Agent (host) → Tools (host, wrong paths) ❌
+
+New Target (Phase 4):
+  CLI (host) → Docker subprocess → Container → Agent → Tools ✅
+
+**Phase 4 Will Implement:**
+1. Container execution layer (src/container.py)
+2. Docker-native Agent entry point
+3. Host ↔ Container communication protocol (JSON/stdin/stdout)
+4. CLI redesign as lightweight wrapper
+5. Error handling for container lifecycle
+
+**Key Technical Decisions:**
+- Ollama connectivity: host.docker.internal:11434 (Docker to host)
+- Container lifecycle: create, run, cleanup per session
+- Communication: Simple protocol via stdin/stdout
+- Workspace: /home/agentuser/workspace (inside container)
+
