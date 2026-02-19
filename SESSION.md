@@ -172,3 +172,109 @@ New Target (Phase 4):
 - Communication: Simple protocol via stdin/stdout
 - Workspace: /home/agentuser/workspace (inside container)
 
+
+---
+
+## Phase 4: Docker-Native Container Orchestration
+
+**2026-02-19 19:32 UTC** - Architecture decision and Phase 4 planning
+
+**Decision:** Option A - Agent runs INSIDE Docker container for proper sandboxing
+
+**Rationale:**
+- ✅ Aligns with security requirements from Specification.md
+- ✅ Proper process isolation and sandbox
+- ✅ Tools operate on actual workspace paths
+- ✅ Cleaner long-term architecture
+
+---
+
+**2026-02-19 19:45 UTC** - Implement container orchestration layer
+
+**Prompt:**
+Complete Phase 4 implementation of Docker-native Agent. Create container execution layer (src/container.py), Docker entrypoint (agentception/entrypoint.py), and enhance CLI for container integration with JSON-based communication protocol.
+
+**Model:** Claude Haiku 4.5 (via GitHub Copilot CLI)
+
+**Output:**
+
+Created 3 major files:
+
+1. **src/container.py (250 lines)**
+   - ContainerConfig: Manages container configuration and Docker args
+   - ContainerManager: Orchestrates container lifecycle
+     - start(): Launches container with proper environment
+     - send_prompt(): Sends JSON prompts to container stdin
+     - receive_response(): Streams responses from container stdout
+     - stop/cleanup(): Graceful shutdown and resource cleanup
+     - is_running/get_error_output(): Status monitoring
+
+2. **agentception/entrypoint.py (150 lines)**
+   - Docker-native entry point running inside container
+   - JSON request/response protocol
+   - Request types: prompt, reset, exit
+   - Integrates Agent orchestrator
+   - Manages Agent lifecycle inside sandbox
+
+3. **agentception/cli.py (redesigned)**
+   - chat command launches and manages containers
+   - Rich-formatted interactive UI
+   - Multi-turn conversation support
+   - Streaming responses with error handling
+   - Graceful container cleanup
+
+4. **tests/test_container.py (22 tests, all passing)**
+   - Configuration validation
+   - Container lifecycle management
+   - Communication protocol tests
+   - Error handling scenarios
+   - Resource cleanup verification
+
+**Communication Protocol:**
+- JSON-based stdin/stdout messaging
+- Prompt: {"type": "prompt", "content": "..."}
+- Response: {"type": "response", "content": "..."}
+- Error: {"type": "error", "message": "..."}
+- Status: {"type": "status", "status": "..."}
+
+**Architecture Flow:**
+```
+CLI (host)
+  ↓
+ContainerManager.start()
+  ↓
+docker run agentception:dev
+  ↓
+Container → entrypoint.py
+  ↓
+Agent (orchestrator) → Tools (in sandbox)
+  ↓
+JSON responses via stdout
+  ↓
+CLI displays with Rich
+```
+
+**Test Coverage:**
+- ✅ 50 total tests passing (11.21s)
+- ✅ 22 new container tests (all passing)
+- ✅ 17 orchestrator tests (no regressions)
+- ✅ 11 tools tests (no regressions)
+
+**Key Features:**
+- Async subprocess management
+- Proper stdin/stdout/stderr handling
+- Error recovery and timeouts
+- Container cleanup on exit/error
+- JSON protocol for reliable communication
+- Multi-turn conversation support
+- Rich terminal UI for user interaction
+
+**Code Quality:**
+- ✅ 100% type hints coverage
+- ✅ Comprehensive error handling
+- ✅ Async/await throughout
+- ✅ Well-documented code
+- ✅ All syntax validated
+
+**Commit:** `feat(phase4): implement Docker-native container orchestration`
+
