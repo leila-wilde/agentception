@@ -357,3 +357,22 @@ Generate documentation and a testing suite for end-users.
 - docs/TESTING.md: 5 Vibe Check scenarios (Project Init, Security, Maintenance, Multi-Step Chain, Personal Assistant)
 - check_system.py: validation script (7 checks, all passing)
 - Commit: docs(user): final documentation suite and validation script (1e74860)
+
+## Phase 9: Bug Fixes - Event Loop & Docker Entrypoint
+
+**2026-02-19 23:11 UTC** - Fixed agent deadlock and missing container entrypoint
+
+**Prompt:** Debug "agent stuck thinking" issue when running: "Create hello.txt with 'Hi'"
+
+**Model:** Claude Haiku 4.5 (via GitHub Copilot CLI)
+
+**Issues Fixed:**
+1. asyncio.run() called twice - merged loops into single _main_chat() coroutine
+2. Dockerfile CMD was /bin/bash, not entrypoint.py - fixed ENTRYPOINT and copied src/
+3. ollama 0.1.7 no tools support - upgraded to 0.4.9 with fallback logic
+
+**Results:**
+- ✅ 73 tests passing
+- ✅ Docker builds & entrypoint runs correctly
+- ✅ Tool calling works with fallback for non-tool-supporting models
+
