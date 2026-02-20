@@ -272,7 +272,15 @@ class Agent:
             except Exception as e:
                 return f"Error communicating with Ollama: {str(e)}"
 
-            response_text = response.get("message", {}).get("content", "")
+            response_text = ""
+            tool_calls_list = None
+            
+            # Handle both dict (from mocks) and ChatResponse objects
+            if isinstance(response, dict):
+                response_text = response.get("message", {}).get("content", "")
+            else:
+                response_text = response.message.content or ""
+                tool_calls_list = getattr(response.message, 'tool_calls', None)
 
             # Add assistant response to history
             self.message_history.append({
@@ -280,8 +288,20 @@ class Agent:
                 "content": response_text,
             })
 
-            # ACT: Check if LLM requested a tool call
-            tool_call = self._parse_tool_call(response_text)
+            # ACT: Check if LLM requested a tool call (via native tool_calls or text parsing)
+            tool_call = None
+            
+            # First, check if the response has native tool_calls (Ollama 0.4+)
+            if tool_calls_list:
+                for tool_call_obj in tool_calls_list:
+                    tool_name = tool_call_obj.function.name
+                    arguments = tool_call_obj.function.arguments
+                    tool_call = (tool_name, arguments)
+                    break  # Handle first tool call
+            
+            # Fallback: parse text for [TOOL_CALL] markers
+            if not tool_call:
+                tool_call = self._parse_tool_call(response_text)
 
             if not tool_call:
                 # No tool call — LLM has produced its final answer

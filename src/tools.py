@@ -300,12 +300,13 @@ async def web_search(query: str, max_results: int = 5) -> str:
     )
 
 
-async def execute_command(cmd: str, timeout: int | None = 30) -> str:
+async def execute_command(cmd: str, timeout: int | str | None = 30) -> str:
     """Execute a shell command and return its output.
     
     Args:
         cmd: The shell command to execute.
-        timeout: Maximum execution time in seconds. Defaults to 30.
+        timeout: Maximum execution time in seconds. Can be int, string "XXs", or None.
+                 Defaults to 30.
         
     Returns:
         Combined stdout and stderr output from the command.
@@ -315,6 +316,18 @@ async def execute_command(cmd: str, timeout: int | None = 30) -> str:
         RuntimeError: If command fails or cannot be executed.
     """
     try:
+        # Parse timeout if it's a string (e.g., "10s")
+        timeout_seconds = 30
+        if timeout is not None:
+            if isinstance(timeout, str):
+                timeout_str = timeout.strip().lower()
+                if timeout_str.endswith('s'):
+                    timeout_seconds = int(timeout_str[:-1])
+                else:
+                    timeout_seconds = int(timeout_str)
+            else:
+                timeout_seconds = int(timeout)
+        
         # Create subprocess shell task
         process = await asyncio.create_subprocess_shell(
             cmd,
@@ -326,12 +339,12 @@ async def execute_command(cmd: str, timeout: int | None = 30) -> str:
         try:
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
                 process.communicate(),
-                timeout=timeout
+                timeout=timeout_seconds
             )
         except asyncio.TimeoutError:
             process.kill()
             await process.wait()
-            raise TimeoutError(f"Command timed out after {timeout} seconds")
+            raise TimeoutError(f"Command timed out after {timeout_seconds} seconds")
         
         # Decode output
         stdout = stdout_bytes.decode("utf-8", errors="replace")
